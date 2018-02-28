@@ -1,5 +1,5 @@
 import test from "tape";
-import { combineModels } from "../src";
+import { combineModels, prop } from "../src";
 
 function isPrimitive(v) {
   const type = typeof v;
@@ -28,9 +28,9 @@ function deepFreeze(obj, path = "") {
   return res;
 }
 
-test("combineModels", assert => {
+function createCtx(state) {
   const ctx = {
-    state: null,
+    state,
     setState(s) {
       if (typeof s === "function") {
         s = s(ctx.state);
@@ -38,15 +38,46 @@ test("combineModels", assert => {
       ctx.state = deepFreeze(Object.assign({}, ctx.state, s), "state");
     }
   };
+  return ctx;
+}
 
-  const counterModel = ctx => ({
-    getInitialState() {
-      return { count: 0, dummy: "dummy" };
-    },
-    increment() {
-      ctx.setState(state => ({ count: state.count + 1 }));
+const counterModel = ctx => ({
+  init() {
+    return { count: 0, dummy: "dummy" };
+  },
+  restore(savedState) {
+    return savedState;
+  },
+  increment() {
+    ctx.setState(state => ({ count: state.count + 1 }));
+  }
+});
+
+test("prop proxy", assert => {
+  const ctx = createCtx({
+    prop: 1,
+    deep: {
+      prop: 2,
+      dummy: "dummy"
     }
   });
+
+  const deepCtx = prop("deep", ctx);
+  assert.equal(deepCtx.state, ctx.state.deep);
+  deepCtx.setState({ prop: 3 });
+  assert.deepEqual(ctx.state, {
+    prop: 1,
+    deep: {
+      prop: 3,
+      dummy: "dummy"
+    }
+  });
+  assert.equal(deepCtx.state, ctx.state.deep);
+  assert.end();
+});
+
+test("combineModels", assert => {
+  const ctx = createCtx(null);
 
   const model = combineModels({
     counter1: counterModel,
@@ -55,7 +86,8 @@ test("combineModels", assert => {
       counter2: counterModel
     })
   })(ctx);
-  ctx.state = deepFreeze(model.getInitialState(), "state");
+
+  const state0 = (ctx.state = deepFreeze(model.init(), "state"));
   assert.deepEqual(
     ctx.state,
     {
@@ -94,5 +126,8 @@ test("combineModels", assert => {
     },
     "should increment the count of counter1"
   );
+
+  ctx.state = model.restore(state0);
+  assert.deepEqual(ctx.state, state0);
   assert.end();
 });
